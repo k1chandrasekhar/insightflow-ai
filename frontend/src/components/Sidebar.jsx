@@ -176,7 +176,7 @@ export default function Sidebar({
           </div>
           {!isSidebarCollapsed && (
             <div className="user-info" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <span className="user-profile-name" style={{ fontSize: '12.5px', fontWeight: 600, color: 'white' }}>{profileName}</span>
+              <span className="user-profile-name" style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-primary)' }}>{profileName}</span>
               <span className="user-profile-email" style={{ fontSize: '10.5px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '130px', fontWeight: 500 }}>
                 Account & Settings
               </span>

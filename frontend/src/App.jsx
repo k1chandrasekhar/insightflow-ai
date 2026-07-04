@@ -50,14 +50,19 @@ export default function App() {
       root.style.setProperty('--bg-primary', '#000000');
       root.style.setProperty('--bg-secondary', '#050508');
       root.style.setProperty('--bg-tertiary', '#0a0a0f');
+      root.style.setProperty('--sidebar-bg', '#000000');
       root.style.setProperty('--border-color', 'rgba(255, 255, 255, 0.05)');
       root.style.setProperty('--glass-bg', 'rgba(255, 255, 255, 0.01)');
       root.style.setProperty('--glass-border', '1px solid rgba(255, 255, 255, 0.04)');
+      root.style.setProperty('--text-primary', '#f3f4f6');
+      root.style.setProperty('--text-secondary', '#9ca3af');
+      root.style.setProperty('--text-muted', '#6b7280');
       document.body.style.backgroundColor = '#000000';
     } else if (theme === 'light') {
       root.style.setProperty('--bg-primary', '#f8fafc');
       root.style.setProperty('--bg-secondary', '#ffffff');
       root.style.setProperty('--bg-tertiary', '#f1f5f9');
+      root.style.setProperty('--sidebar-bg', '#e2e8f0');
       root.style.setProperty('--border-color', 'rgba(15, 23, 42, 0.08)');
       root.style.setProperty('--text-primary', '#0f172a');
       root.style.setProperty('--text-secondary', '#475569');
@@ -70,6 +75,7 @@ export default function App() {
       root.style.setProperty('--bg-primary', '#0a0b10');
       root.style.setProperty('--bg-secondary', 'rgba(18, 20, 29, 0.6)');
       root.style.setProperty('--bg-tertiary', 'rgba(25, 28, 41, 0.8)');
+      root.style.setProperty('--sidebar-bg', 'rgba(10, 11, 16, 0.85)');
       root.style.setProperty('--border-color', 'rgba(255, 255, 255, 0.08)');
       root.style.setProperty('--text-primary', '#f3f4f6');
       root.style.setProperty('--text-secondary', '#9ca3af');
