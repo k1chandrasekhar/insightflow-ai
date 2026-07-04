@@ -80,13 +80,36 @@ local-rag-kb/
 
 ## 🚀 Getting Started
 
-### Prerequisites
-1. Install [Node.js](https://nodejs.org/) (v18 or higher recommended).
-2. Install [Ollama](https://ollama.com/) locally.
-3. Pull your preferred chat model (e.g. `llama3`):
-   ```bash
-   ollama pull llama3
-   ```
+### Prerequisites & Local Model Setup
+
+InsightFlow AI runs entirely offline using **Ollama** as its local model inference engine. Follow these steps to set up your environment:
+
+#### 1. Download & Install Ollama
+*   Go to the official [Ollama Download Page](https://ollama.com/download) and install the software for your operating system.
+*   Once installed, ensure the Ollama application is running (you should see the Ollama icon in your menu bar or system tray).
+
+#### 2. Pull Models via Command Line (Recommended)
+Open your terminal (PowerShell, Command Prompt, or bash) and pull the models required for chat synthesis and document embedding:
+*   **Chat Model (LLM)**: Pull a chat model (we recommend `llama3` as default, but any model like `llama3.1`, `mistral`, or `phi3` works):
+    ```bash
+    ollama pull llama3
+    ```
+*   **Embedding Model**: Pull an embedding model (we recommend `nomic-embed-text` for highly accurate vector search results):
+    ```bash
+    ollama pull nomic-embed-text
+    ```
+
+#### 3. Pull Models via the App UI
+Alternatively, you can pull models directly inside the InsightFlow dashboard:
+1. Start the application servers (`npm run dev`).
+2. Navigate to **Settings** (click on **Account & Settings** in the sidebar footer).
+3. Find the **Pull Ollama Models** card.
+4. Input the model name (e.g. `llama3` or `nomic-embed-text`) and click **Pull**. The server will download the model in the background.
+
+#### 4. Manage RAM/VRAM Hardware Memory
+Under the **Settings** panel, you'll find the **LLM Hardware Memory Center**:
+*   **🟢 Run (Load)**: Immediately preloads a model into VRAM, eliminating the initial loading latency on your first chat query.
+*   **🔴 Stop (Unload)**: Immediately unloads a model from RAM/VRAM, instantly freeing up system resources when you are done.
 
 ### Installation
 1. Clone this repository:
