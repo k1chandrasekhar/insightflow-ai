@@ -65,8 +65,8 @@ export default function App() {
       root.style.setProperty('--sidebar-bg', '#e2e8f0');
       root.style.setProperty('--border-color', 'rgba(15, 23, 42, 0.08)');
       root.style.setProperty('--text-primary', '#0f172a');
-      root.style.setProperty('--text-secondary', '#475569');
-      root.style.setProperty('--text-muted', '#64748b');
+      root.style.setProperty('--text-secondary', '#1e293b');
+      root.style.setProperty('--text-muted', '#475569');
       root.style.setProperty('--glass-bg', 'rgba(255, 255, 255, 0.85)');
       root.style.setProperty('--glass-border', '1px solid rgba(15, 23, 42, 0.06)');
       document.body.style.backgroundColor = '#f8fafc';

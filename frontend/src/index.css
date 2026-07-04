@@ -232,7 +232,7 @@ body {
 }
 
 .history-item.active {
-  color: white;
+  color: var(--text-primary);
   background: rgba(99, 102, 241, 0.1);
   border-color: rgba(99, 102, 241, 0.2);
 }
@@ -350,7 +350,7 @@ body {
 }
 
 .nav-link.active {
-  color: white;
+  color: var(--text-primary);
   background: rgba(99, 102, 241, 0.15);
   border-color: rgba(99, 102, 241, 0.25);
   box-shadow: inset 0 0 10px rgba(99, 102, 241, 0.05);
