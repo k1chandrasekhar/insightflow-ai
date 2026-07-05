@@ -4,6 +4,7 @@ import ChatInterface from './components/ChatInterface';
 import DocumentLibrary from './components/DocumentLibrary';
 import Settings from './components/Settings';
 import AddItemModal from './components/AddItemModal';
+import KnowledgeGraph from './components/KnowledgeGraph';
 import { 
   fetchItems, 
   deleteItem, 
@@ -231,6 +232,12 @@ export default function App() {
             items={items} 
             onDeleteItem={handleDeleteItem} 
             onOpenAddModal={() => setIsAddModalOpen(true)}
+          />
+        )}
+
+        {activeTab === 'graph' && (
+          <KnowledgeGraph 
+            items={items} 
           />
         )}
 

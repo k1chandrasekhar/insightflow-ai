@@ -35,11 +35,23 @@ export default function AddItemModal({ isOpen, onClose, onAddSuccess, embedModel
 
   const validateFile = (file) => {
     const isImage = file.type.startsWith('image/');
-    const allowedTypes = ['application/pdf', 'text/plain', 'text/markdown'];
-    const isAllowed = allowedTypes.includes(file.type) || isImage || file.name.endsWith('.txt') || file.name.endsWith('.md');
+    const allowedTypes = [
+      'application/pdf', 
+      'text/plain', 
+      'text/markdown',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/csv',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ];
+    const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+    const allowedExtensions = ['.pdf', '.txt', '.md', '.docx', '.xlsx', '.csv', '.pptx'];
+    
+    const isAllowed = allowedTypes.includes(file.type) || isImage || allowedExtensions.includes(extension);
     
     if (!isAllowed) {
-      setError('Unsupported file type. Please upload a PDF, image, or text file (.txt/.md).');
+      setError('Unsupported file type. Please upload a PDF, Word (.docx), Excel/CSV (.xlsx/.csv), PowerPoint (.pptx), image, or text file (.txt/.md).');
       return false;
     }
     return true;
@@ -177,7 +189,7 @@ export default function AddItemModal({ isOpen, onClose, onAddSuccess, embedModel
                   type="file" 
                   ref={fileInputRef} 
                   onChange={handleFileChange} 
-                  accept=".pdf,image/*,.txt,.md" 
+                  accept=".pdf,image/*,.txt,.md,.docx,.xlsx,.csv,.pptx" 
                   style={{ display: 'none' }}
                 />
                 <Upload size={32} className="upload-icon" />
@@ -189,7 +201,7 @@ export default function AddItemModal({ isOpen, onClose, onAddSuccess, embedModel
                 ) : (
                   <div>
                     <p className="upload-text">Click or drag file here to upload</p>
-                    <p className="upload-subtext">Supported formats: PDF, Image, Text (.txt/.md)</p>
+                    <p className="upload-subtext">Supported formats: PDF, Word, Excel, CSV, PPTX, Image, Text</p>
                   </div>
                 )}
               </div>

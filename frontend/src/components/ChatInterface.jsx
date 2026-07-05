@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, FileText, Link as LinkIcon, FileDown, Sparkles, BrainCircuit, Globe, Eye, Server, Plus, Download, Info, ExternalLink, X, User } from 'lucide-react';
+import { Send, FileText, Link as LinkIcon, FileDown, Sparkles, BrainCircuit, Globe, Eye, Server, Plus, Download, Info, ExternalLink, X, User, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { queryRAG, fetchSessionMessages, uploadFile } from '../utils/api';
 
@@ -27,6 +27,46 @@ export default function ChatInterface({ chatModel, embedModel, itemsCount, activ
   
   // Custom states for new features
   const [activeCitation, setActiveCitation] = useState(null); // Interactive Citation Viewer
+  const [pendingImage, setPendingImage] = useState(null); // { file, base64 }
+  
+  // Speech states (Text-to-Speech only)
+  const [speakingMessageId, setSpeakingMessageId] = useState(null);
+
+  // Stop speaking if session changes or component unmounts
+  useEffect(() => {
+    return () => {
+      window.speechSynthesis.cancel();
+    };
+  }, [activeSessionId]);
+
+  const handleSpeak = (e, messageId, text) => {
+    e.preventDefault();
+    if (speakingMessageId === messageId) {
+      window.speechSynthesis.cancel();
+      setSpeakingMessageId(null);
+      return;
+    }
+    
+    window.speechSynthesis.cancel(); // Stop any current speech
+    
+    // Strip markdown formatting and citations before speaking
+    const cleanText = text
+      .replace(/[\*\#\_\`\[\]\(\)]/g, '')
+      .replace(/\[\d+\]/g, '');
+      
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    
+    utterance.onend = () => {
+      setSpeakingMessageId(null);
+    };
+    
+    utterance.onerror = () => {
+      setSpeakingMessageId(null);
+    };
+
+    setSpeakingMessageId(messageId);
+    window.speechSynthesis.speak(utterance);
+  };
   
   // Profile name syncing for avatars and headers
   const [profileName, setProfileName] = useState(
@@ -118,20 +158,44 @@ export default function ChatInterface({ chatModel, embedModel, itemsCount, activ
     if (!query.trim() || loading || !activeSessionId) return;
 
     const userQuery = query.trim();
+    const currentPendingImage = pendingImage;
+    
     setQuery('');
+    setPendingImage(null);
     setLoading(true);
 
+    // Get current RAG sliders configuration from local storage
+    const topK = parseInt(localStorage.getItem('rag-top-k')) || 4;
+    const similarityThreshold = parseFloat(localStorage.getItem('rag-threshold')) || 0.4;
+    const hybridWeight = parseFloat(localStorage.getItem('rag-hybrid-weight')) || 0.5;
+
     // Append user message instantly
-    setMessages(prev => [...prev, { role: 'user', content: userQuery, timestamp: new Date().toISOString() }]);
+    setMessages(prev => [...prev, { 
+      role: 'user', 
+      content: userQuery, 
+      timestamp: new Date().toISOString(),
+      images: currentPendingImage ? [currentPendingImage.base64] : []
+    }]);
 
     try {
       // Call RAG API
-      const result = await queryRAG({
+      const queryData = {
         query: userQuery,
         mode: mode,
         chatModel,
-        sessionId: activeSessionId
-      });
+        sessionId: activeSessionId,
+        ragSettings: {
+          topK,
+          similarityThreshold,
+          hybridWeight
+        }
+      };
+
+      if (currentPendingImage) {
+        queryData.images = [currentPendingImage.base64];
+      }
+
+      const result = await queryRAG(queryData);
 
       // Append assistant response with metrics
       setMessages(prev => [...prev, {
@@ -162,6 +226,23 @@ export default function ChatInterface({ chatModel, embedModel, itemsCount, activ
   const handleChatFileChange = async (e) => {
     if (e.target.files && e.target.files[0] && activeSessionId) {
       const file = e.target.files[0];
+      
+      // If it's an image, set it as pending image instead of indexing directly in library
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setPendingImage({
+            file,
+            base64: reader.result
+          });
+        };
+        reader.readAsDataURL(file);
+        
+        if (chatFileInputRef.current) {
+          chatFileInputRef.current.value = '';
+        }
+        return;
+      }
       
       setMessages(prev => [...prev, {
         role: 'assistant',
@@ -318,6 +399,20 @@ export default function ChatInterface({ chatModel, embedModel, itemsCount, activ
                   </div>
                   <div className="message-content">
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
+
+                    {/* Render message images if any */}
+                    {msg.images && msg.images.length > 0 && (
+                      <div className="message-images" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px', marginBottom: '8px' }}>
+                        {msg.images.map((img, idx) => (
+                          <img 
+                            key={idx}
+                            src={img.startsWith('data:') ? img : `http://localhost:5000/${img}`} 
+                            alt="Attached attachment" 
+                            style={{ maxWidth: '240px', maxHeight: '160px', borderRadius: '8px', border: '1px solid var(--border-color)', objectFit: 'cover', cursor: 'pointer' }}
+                          />
+                        ))}
+                      </div>
+                    )}
                     
                     {msg.citations && msg.citations.length > 0 && (
                       <div className="citations-container">
@@ -349,29 +444,52 @@ export default function ChatInterface({ chatModel, embedModel, itemsCount, activ
                       </div>
                     )}
 
-                    {/* Local LLM Performance Metrics Badge */}
-                    {msg.role === 'assistant' && msg.metrics && (
-                      <div className="metrics-badge-container" style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        marginTop: '12px',
-                        fontSize: '11px',
-                        color: 'var(--text-muted)',
-                        background: 'rgba(255, 255, 255, 0.02)',
-                        padding: '4px 8px',
-                        borderRadius: '6px',
-                        width: 'fit-content',
-                        border: '1px solid rgba(255, 255, 255, 0.02)'
-                      }}
-                      title={`Prompt eval: ${msg.metrics.promptEvalCount} tokens (${Math.round(msg.metrics.promptEvalDuration / 1e6)}ms) | Load: ${Math.round(msg.metrics.loadDuration / 1e6)}ms`}
-                      >
-                        <Info size={11} style={{ color: 'var(--accent-light)' }} />
-                        <span>Speed: <strong>{((msg.metrics.evalCount / (msg.metrics.evalDuration / 1e9)) || 0).toFixed(1)} t/s</strong></span>
-                        <span>•</span>
-                        <span>Tokens: {msg.metrics.evalCount}</span>
-                        <span>•</span>
-                        <span>Inference: {((msg.metrics.evalDuration / 1e9) || 0).toFixed(2)}s</span>
+                    {/* Speaker (TTS) & Performance Metrics Badge */}
+                    {msg.role === 'assistant' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-icon tts-btn"
+                          onClick={(e) => handleSpeak(e, msg.id || index, msg.content)}
+                          title={speakingMessageId === (msg.id || index) ? "Stop speaking" : "Speak response aloud (Text-to-Speech)"}
+                          style={{
+                            padding: '4px 8px',
+                            fontSize: '11px',
+                            display: 'flex',
+                            gap: '4px',
+                            alignItems: 'center',
+                            background: 'rgba(255, 255, 255, 0.02)',
+                            borderColor: speakingMessageId === (msg.id || index) ? 'rgba(99, 102, 241, 0.3)' : 'rgba(255, 255, 255, 0.02)',
+                            color: speakingMessageId === (msg.id || index) ? 'var(--accent-light)' : 'var(--text-muted)'
+                          }}
+                        >
+                          {speakingMessageId === (msg.id || index) ? <VolumeX size={12} /> : <Volume2 size={12} />}
+                          <span>{speakingMessageId === (msg.id || index) ? 'Stop' : 'Listen'}</span>
+                        </button>
+
+                        {msg.metrics && (
+                          <div className="metrics-badge-container" style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontSize: '11px',
+                            color: 'var(--text-muted)',
+                            background: 'rgba(255, 255, 255, 0.02)',
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid rgba(255, 255, 255, 0.02)',
+                            width: 'fit-content'
+                          }}
+                          title={`Prompt eval: ${msg.metrics.promptEvalCount} tokens (${Math.round(msg.metrics.promptEvalDuration / 1e6)}ms) | Load: ${Math.round(msg.metrics.loadDuration / 1e6)}ms`}
+                          >
+                            <Info size={11} style={{ color: 'var(--accent-light)' }} />
+                            <span>Speed: <strong>{((msg.metrics.evalCount / (msg.metrics.evalDuration / 1e9)) || 0).toFixed(1)} t/s</strong></span>
+                            <span>•</span>
+                            <span>Tokens: {msg.metrics.evalCount}</span>
+                            <span>•</span>
+                            <span>Inference: {((msg.metrics.evalDuration / 1e9) || 0).toFixed(2)}s</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -399,6 +517,56 @@ export default function ChatInterface({ chatModel, embedModel, itemsCount, activ
       </div>
 
       <div className="chat-controls-wrapper">
+        {pendingImage && (
+          <div className="pending-image-preview-bar" style={{
+            display: 'flex',
+            alignItems: 'center',
+            background: 'rgba(255, 255, 255, 0.03)',
+            border: '1px solid var(--border-color)',
+            padding: '8px 12px',
+            borderRadius: '10px',
+            marginBottom: '10px',
+            gap: '12px',
+            width: 'fit-content',
+            animation: 'scaleIn 0.2s ease-out'
+          }}>
+            <div style={{ position: 'relative' }}>
+              <img 
+                src={pendingImage.base64} 
+                alt="Upload preview" 
+                style={{ width: '48px', height: '48px', borderRadius: '6px', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.1)' }}
+              />
+              <button
+                type="button"
+                onClick={() => setPendingImage(null)}
+                style={{
+                  position: 'absolute',
+                  top: '-6px',
+                  right: '-6px',
+                  background: '#ef4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '16px',
+                  height: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  padding: 0
+                }}
+              >
+                <X size={10} />
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'white' }}>{pendingImage.file.name}</span>
+              <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>Image attached to query</span>
+            </div>
+          </div>
+        )}
+
+
         {mode !== 'local' && itemsCount > 0 && (
           query.toLowerCase().includes('resume') || 
           query.toLowerCase().includes('pdf') || 
@@ -457,6 +625,8 @@ export default function ChatInterface({ chatModel, embedModel, itemsCount, activ
             onChange={(e) => setQuery(e.target.value)}
             disabled={loading || loadingMessages}
           />
+
+
           <button 
             type="submit" 
             className="btn btn-primary btn-icon" 

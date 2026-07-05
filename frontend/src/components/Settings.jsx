@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Play, AlertCircle, RefreshCw, Database, Cpu, Power, User, Eye } from 'lucide-react';
+import { Settings as SettingsIcon, Play, AlertCircle, RefreshCw, Database, Cpu, Power, User, Eye, Sliders } from 'lucide-react';
 import { pullOllamaModel, fetchActiveModels, loadOllamaModel, unloadOllamaModel } from '../utils/api';
 
 export default function Settings({ 
@@ -23,6 +23,32 @@ export default function Settings({
   const [loadingActive, setLoadingActive] = useState(false);
   const [activeMsg, setActiveMsg] = useState('');
   const [selectedControlModel, setSelectedControlModel] = useState(chatModel || '');
+
+  // RAG settings states
+  const [topK, setTopK] = useState(
+    parseInt(localStorage.getItem('rag-top-k')) || 4
+  );
+  const [similarityThreshold, setSimilarityThreshold] = useState(
+    parseFloat(localStorage.getItem('rag-threshold')) || 0.4
+  );
+  const [hybridWeight, setHybridWeight] = useState(
+    parseFloat(localStorage.getItem('rag-hybrid-weight')) || 0.5
+  );
+
+  const handleTopKChange = (val) => {
+    setTopK(val);
+    localStorage.setItem('rag-top-k', val);
+  };
+
+  const handleSimilarityThresholdChange = (val) => {
+    setSimilarityThreshold(val);
+    localStorage.setItem('rag-threshold', val);
+  };
+
+  const handleHybridWeightChange = (val) => {
+    setHybridWeight(val);
+    localStorage.setItem('rag-hybrid-weight', val);
+  };
 
   // User Profile Account Settings (persisted)
   const [username, setUsername] = useState(
@@ -463,6 +489,77 @@ export default function Settings({
               </div>
             )}
           </form>
+        </div>
+
+        {/* RAG Retrieval Tuning Configuration */}
+        <div className="glass-panel settings-card">
+          <h2 className="settings-card-title">
+            <Sliders size={18} style={{ color: 'var(--accent)' }} />
+            <span>RAG Retrieval Tuning</span>
+          </h2>
+          
+          <div className="settings-group">
+            {/* Top-K slider */}
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <label className="form-label" style={{ margin: 0 }}>Top-K Chunks Retrieved</label>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--accent-light)' }}>{topK} chunks</span>
+              </div>
+              <input 
+                type="range" 
+                min="3" 
+                max="10" 
+                step="1"
+                className="form-input" 
+                style={{ width: '100%', height: '6px', cursor: 'pointer', accentColor: 'var(--accent)', padding: 0 }}
+                value={topK}
+                onChange={(e) => handleTopKChange(parseInt(e.target.value))}
+              />
+              <p className="doc-meta" style={{ marginTop: '4px' }}>Controls the number of context snippets retrieved from the database to answer your query.</p>
+            </div>
+
+            {/* Similarity Threshold slider */}
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <label className="form-label" style={{ margin: 0 }}>Minimum Similarity Threshold</label>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--accent-light)' }}>{Math.round(similarityThreshold * 100)}%</span>
+              </div>
+              <input 
+                type="range" 
+                min="0" 
+                max="1" 
+                step="0.05"
+                className="form-input" 
+                style={{ width: '100%', height: '6px', cursor: 'pointer', accentColor: 'var(--accent)', padding: 0 }}
+                value={similarityThreshold}
+                onChange={(e) => handleSimilarityThresholdChange(parseFloat(e.target.value))}
+              />
+              <p className="doc-meta" style={{ marginTop: '4px' }}>Filters out text snippets with a match percentage below this value (helps eliminate irrelevant context).</p>
+            </div>
+
+            {/* Hybrid Search Weight slider */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <label className="form-label" style={{ margin: 0 }}>Hybrid Weight (Keyword vs. Vector)</label>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent-light)' }}>
+                  {hybridWeight === 0.5 ? 'Balanced (50/50)' : hybridWeight > 0.5 ? `Vector: ${Math.round(hybridWeight * 100)}%` : `Keyword: ${Math.round((1 - hybridWeight) * 100)}%`}
+                </span>
+              </div>
+              <input 
+                type="range" 
+                min="0" 
+                max="1" 
+                step="0.05"
+                className="form-input" 
+                style={{ width: '100%', height: '6px', cursor: 'pointer', accentColor: 'var(--accent)', padding: 0 }}
+                value={hybridWeight}
+                onChange={(e) => handleHybridWeightChange(parseFloat(e.target.value))}
+              />
+              <p className="doc-meta" style={{ marginTop: '4px' }}>
+                Balances dense vector semantic matching (right) against BM25 term frequency keyword matching (left).
+              </p>
+            </div>
+          </div>
         </div>
 
       </div>

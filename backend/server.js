@@ -6,6 +6,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import pdf from 'pdf-parse/lib/pdf-parse.js';
 import { pipeline } from '@xenova/transformers';
+import XLSX from 'xlsx';
+import mammoth from 'mammoth';
+import AdmZip from 'adm-zip';
 import { searchWeb, scrapeUrlText } from './search.js';
 import { 
   addItem, 
@@ -14,12 +17,109 @@ import {
   chunkText, 
   addChunks, 
   querySimilarChunks,
+  queryHybridChunks,
   createSession,
   getSessions,
   deleteSession,
   getSessionMessages,
   addMessage
 } from './db.js';
+
+// Helper: Custom PPTX Slide Text Extractor using zip parsing
+function parsePptxText(filePath) {
+  try {
+    const zip = new AdmZip(filePath);
+    const zipEntries = zip.getEntries();
+    let textContent = '';
+    
+    // Sort slide files in numerical order
+    const slideEntries = zipEntries
+      .filter(entry => entry.entryName.startsWith('ppt/slides/slide') && entry.entryName.endsWith('.xml'))
+      .sort((a, b) => {
+        const numA = parseInt(a.entryName.match(/\d+/)[0]);
+        const numB = parseInt(b.entryName.match(/\d+/)[0]);
+        return numA - numB;
+      });
+
+    slideEntries.forEach((entry, idx) => {
+      const xml = entry.getData().toString('utf8');
+      const matches = xml.match(/<a:t>([\s\S]*?)<\/a:t>/g) || [];
+      const slideText = matches
+        .map(m => m.replace(/<\/?a:t>/g, ''))
+        .join(' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'");
+      if (slideText.trim()) {
+        textContent += `[Slide ${idx + 1}] ${slideText}\n\n`;
+      }
+    });
+
+    return textContent.trim();
+  } catch (err) {
+    console.error('Error parsing PPTX:', err);
+    throw err;
+  }
+}
+
+// Helper: Parse CSV rows correctly (taking quotes into account)
+function parseCSVRows(lines) {
+  const parsed = [];
+  lines.forEach(line => {
+    const row = [];
+    let insideQuote = false;
+    let currentVal = '';
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        insideQuote = !insideQuote;
+      } else if (char === ',' && !insideQuote) {
+        row.push(currentVal.trim());
+        currentVal = '';
+      } else {
+        currentVal += char;
+      }
+    }
+    row.push(currentVal.trim());
+    parsed.push(row);
+  });
+  return parsed;
+}
+
+// Helper: Convert parsed CSV rows back to a Markdown table
+function csvToMarkdown(rows) {
+  if (rows.length === 0) return '';
+  const headers = rows[0];
+  const body = rows.slice(1);
+  
+  let md = '| ' + headers.join(' | ') + ' |\n';
+  md += '| ' + headers.map(() => '---').join(' | ') + ' |\n';
+  body.forEach(row => {
+    md += '| ' + row.join(' | ') + ' |\n';
+  });
+  return md;
+}
+
+// Helper: Chunk spreadsheet rows and return Markdown tables preserving columns
+function chunkSpreadsheet(csvContent, chunkSize = 20) {
+  const lines = csvContent.split(/\r?\n/).filter(line => line.trim().length > 0);
+  if (lines.length === 0) return [];
+  
+  const header = lines[0];
+  const dataRows = lines.slice(1);
+  const chunks = [];
+  
+  for (let i = 0; i < dataRows.length; i += chunkSize) {
+    const chunkRows = dataRows.slice(i, i + chunkSize);
+    const tableRows = [header, ...chunkRows];
+    const parsedRows = parseCSVRows(tableRows);
+    const mdTable = csvToMarkdown(parsedRows);
+    chunks.push(mdTable);
+  }
+  return chunks;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -144,6 +244,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     const relativePath = path.relative(__dirname, filePath);
     const filename = req.file.originalname;
     const mimeType = req.file.mimetype;
+    const extension = path.extname(filename).toLowerCase();
 
     let newItem;
 
@@ -178,6 +279,93 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       const chunkEmbeddings = [];
 
       console.log(`Generating embeddings for PDF "${filename}" (${chunks.length} chunks)...`);
+      for (const chunk of chunks) {
+        const embedding = await getEmbedding(chunk);
+        chunkEmbeddings.push({ text: chunk, embedding });
+      }
+
+      addChunks(newItem.id, chunkEmbeddings);
+    } else if (extension === '.docx') {
+      console.log(`Parsing DOCX file: ${filename}`);
+      const result = await mammoth.extractRawText({ path: filePath });
+      const content = result.value;
+
+      if (!content || content.trim().length === 0) {
+        fs.unlinkSync(filePath);
+        return res.status(400).json({ error: 'Failed to extract text from Word document' });
+      }
+
+      newItem = addItem({
+        title: filename,
+        content,
+        type: 'note',
+        filepath: relativePath
+      });
+
+      const chunks = chunkText(content);
+      const chunkEmbeddings = [];
+
+      console.log(`Generating embeddings for DOCX "${filename}" (${chunks.length} chunks)...`);
+      for (const chunk of chunks) {
+        const embedding = await getEmbedding(chunk);
+        chunkEmbeddings.push({ text: chunk, embedding });
+      }
+
+      addChunks(newItem.id, chunkEmbeddings);
+    } else if (extension === '.xlsx' || extension === '.csv' || mimeType === 'text/csv' || mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
+      console.log(`Parsing spreadsheet file: ${filename}`);
+      let csvContent = '';
+      if (extension === '.csv') {
+        csvContent = fs.readFileSync(filePath, 'utf8');
+      } else {
+        const workbook = XLSX.readFile(filePath);
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        csvContent = XLSX.utils.sheet_to_csv(sheet);
+      }
+
+      if (!csvContent || csvContent.trim().length === 0) {
+        fs.unlinkSync(filePath);
+        return res.status(400).json({ error: 'Failed to extract data from spreadsheet' });
+      }
+
+      newItem = addItem({
+        title: filename,
+        content: csvContent,
+        type: 'note',
+        filepath: relativePath
+      });
+
+      const chunks = chunkSpreadsheet(csvContent, 20);
+      const chunkEmbeddings = [];
+
+      console.log(`Generating embeddings for spreadsheet "${filename}" (${chunks.length} chunks)...`);
+      for (const chunk of chunks) {
+        const embedding = await getEmbedding(chunk);
+        chunkEmbeddings.push({ text: chunk, embedding });
+      }
+
+      addChunks(newItem.id, chunkEmbeddings);
+    } else if (extension === '.pptx' || mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+      console.log(`Parsing PPTX file: ${filename}`);
+      const content = parsePptxText(filePath);
+
+      if (!content || content.trim().length === 0) {
+        fs.unlinkSync(filePath);
+        return res.status(400).json({ error: 'Failed to extract text from PowerPoint presentation' });
+      }
+
+      newItem = addItem({
+        title: filename,
+        content,
+        type: 'note',
+        filepath: relativePath
+      });
+
+      const chunks = chunkText(content);
+      const chunkEmbeddings = [];
+
+      console.log(`Generating embeddings for PPTX "${filename}" (${chunks.length} chunks)...`);
       for (const chunk of chunks) {
         const embedding = await getEmbedding(chunk);
         chunkEmbeddings.push({ text: chunk, embedding });
@@ -264,9 +452,44 @@ app.get('/api/sessions/:id/messages', (req, res) => {
 // --- Query / RAG Endpoint ---
 
 // Route: Query Ollama RAG (with persistent session history)
+// Helper: Save base64 image to disk and return relative path
+function saveBase64Image(base64Str) {
+  try {
+    const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    let ext = 'png';
+    let data = base64Str;
+    if (matches && matches.length === 3) {
+      ext = matches[1].split('/')[1] || 'png';
+      data = matches[2];
+    }
+    const buffer = Buffer.from(data, 'base64');
+    const filename = `chat-img-${Date.now()}-${Math.random().toString(36).substr(2, 5)}.${ext}`;
+    const filePath = path.join(UPLOAD_DIR, filename);
+    fs.writeFileSync(filePath, buffer);
+    return `uploads/${filename}`;
+  } catch (err) {
+    console.error('Error saving base64 image:', err);
+    return null;
+  }
+}
+
+// Helper: Read file from disk and convert to base64
+function getBase64OfFile(relativeFilePath) {
+  try {
+    const fullPath = path.join(__dirname, relativeFilePath);
+    if (fs.existsSync(fullPath)) {
+      return fs.readFileSync(fullPath, { encoding: 'base64' });
+    }
+  } catch (err) {
+    console.error(`Error reading image file for base64: ${relativeFilePath}`, err);
+  }
+  return null;
+}
+
+// Route: Query Ollama RAG (with persistent session history)
 app.post('/api/query', async (req, res) => {
   try {
-    const { query, mode, chatModel, sessionId } = req.body;
+    const { query, mode, chatModel, sessionId, images, ragSettings } = req.body;
     if (!query || !sessionId) {
       return res.status(400).json({ error: 'Query and sessionId are required' });
     }
@@ -274,30 +497,51 @@ app.post('/api/query', async (req, res) => {
     const activeChatModel = chatModel || 'llama3';
     const activeMode = mode || 'none';
 
+    // RAG configuration variables
+    const topK = ragSettings?.topK || 4;
+    const similarityThreshold = ragSettings?.similarityThreshold !== undefined ? ragSettings.similarityThreshold : 0.4;
+    const hybridWeight = ragSettings?.hybridWeight !== undefined ? ragSettings.hybridWeight : 0.5;
+
+    // Save image attachments to disk if any
+    const savedImagePaths = [];
+    if (images && images.length > 0) {
+      images.forEach(img => {
+        const savedPath = saveBase64Image(img);
+        if (savedPath) savedImagePaths.push(savedPath);
+      });
+    }
+
     // 1. Save user query in database
-    addMessage(sessionId, 'user', query);
+    addMessage(sessionId, 'user', query, [], null, savedImagePaths);
 
     // 2. Fetch session history for Ollama context (excluding the new user query we just saved)
     const previousMessages = getSessionMessages(sessionId).slice(0, -1);
-    const history = previousMessages.map(m => ({
-      role: m.role,
-      content: m.content
-    }));
+    const history = previousMessages.map(m => {
+      const msgObj = {
+        role: m.role,
+        content: m.content
+      };
+      if (m.images && m.images.length > 0) {
+        msgObj.images = m.images.map(img => getBase64OfFile(img)).filter(Boolean);
+      }
+      return msgObj;
+    });
 
     let contextChunks = [];
     let promptContext = '';
     let systemPrompt = '';
 
     if (activeMode === 'local') {
-      console.log(`Performing local vector search for session ${sessionId}: "${query}"`);
+      console.log(`Performing local hybrid search for session ${sessionId}: "${query}" (topK=${topK}, threshold=${similarityThreshold}, hybridWeight=${hybridWeight})`);
       const queryEmbedding = await getEmbedding(query);
-      const localChunks = querySimilarChunks(queryEmbedding, 4);
+      const localChunks = queryHybridChunks(query, queryEmbedding, topK, similarityThreshold, hybridWeight);
       
       contextChunks = localChunks.map(c => ({
         sourceTitle: c.sourceTitle,
         sourceType: c.sourceType,
         sourceUrl: c.sourceUrl,
         similarity: c.similarity,
+        hybridScore: c.hybridScore,
         text: c.text
       }));
 
@@ -364,7 +608,12 @@ Guidelines:
     }
 
     // Append current user query
-    messages.push({ role: 'user', content: query });
+    const userMessage = { role: 'user', content: query };
+    if (savedImagePaths.length > 0) {
+      // Pass base64 strings to Ollama
+      userMessage.images = savedImagePaths.map(img => getBase64OfFile(img)).filter(Boolean);
+    }
+    messages.push(userMessage);
 
     console.log(`Calling Ollama chat API with model: ${activeChatModel}`);
     const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
@@ -441,9 +690,11 @@ app.post('/api/ollama/pull', async (req, res) => {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to pull model: status ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`Failed to pull model: status ${response.status} - ${errorText}`);
     }
 
+    await response.json(); // Consume response body
     res.json({ success: true, message: `Model ${model} pulled successfully` });
   } catch (error) {
     console.error(`Error pulling model:`, error);
@@ -478,9 +729,15 @@ app.post('/api/ollama/load', async (req, res) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: model,
-        keep_alive: '20m' // keep loaded for 20 minutes
+        keep_alive: '20m', // keep loaded for 20 minutes
+        stream: false
       })
     });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to load model: status ${response.status} - ${errorText}`);
+    }
+    await response.json(); // Consume response body
     res.json({ success: true, message: `Model ${model} loaded successfully` });
   } catch (error) {
     console.error('Error preloading model:', error);
@@ -505,6 +762,11 @@ app.post('/api/ollama/unload', async (req, res) => {
         keep_alive: 0 // unload immediately
       })
     });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to unload model: status ${response.status} - ${errorText}`);
+    }
+    await response.json(); // Consume response body
     res.json({ success: true, message: `Model ${model} unloaded successfully` });
   } catch (error) {
     console.error('Error unloading model:', error);

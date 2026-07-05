@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, FolderOpen, Settings, Brain, Radio, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { MessageSquare, FolderOpen, Settings, Brain, Radio, Plus, Trash2, ChevronLeft, ChevronRight, Hash } from 'lucide-react';
 
 export default function Sidebar({ 
   activeTab, 
@@ -112,7 +112,7 @@ export default function Sidebar({
 
       <div style={{ width: '100%' }}>
         {/* Navigation Links */}
-        <nav className="nav-links" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', marginTop: '16px' }}>
+        <nav className="nav-links" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <button 
             className={`nav-link ${activeTab === 'library' ? 'active' : ''}`}
             onClick={() => setActiveTab('library')}
@@ -120,6 +120,15 @@ export default function Sidebar({
           >
             <FolderOpen size={15} />
             {!isSidebarCollapsed && <span>Library</span>}
+          </button>
+          
+          <button 
+            className={`nav-link ${activeTab === 'graph' ? 'active' : ''}`}
+            onClick={() => setActiveTab('graph')}
+            title={isSidebarCollapsed ? "Knowledge Graph" : ""}
+          >
+            <Hash size={15} />
+            {!isSidebarCollapsed && <span>Graph</span>}
           </button>
         </nav>
 
